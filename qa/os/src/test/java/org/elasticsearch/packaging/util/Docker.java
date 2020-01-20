@@ -26,7 +26,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.http.client.fluent.Request;
 import org.elasticsearch.common.CheckedRunnable;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFileAttributes;
@@ -445,7 +444,7 @@ public class Docker {
             "elasticsearch-shard"
         ).forEach(executable -> assertPermissionsAndOwnership(es.bin(executable), p755));
 
-        Stream.of("LICENSE.txt", "NOTICE.txt", "README.textile").forEach(doc -> assertPermissionsAndOwnership(es.home.resolve(doc), p644));
+        Stream.of("LICENSE.txt", "NOTICE.txt", "README.asciidoc").forEach(doc -> assertPermissionsAndOwnership(es.home.resolve(doc), p644));
 
         // These are installed to help users who are working with certificates.
         Stream.of("zip", "unzip").forEach(cliPackage -> {
@@ -503,7 +502,7 @@ public class Docker {
         }
     }
 
-    public static JsonNode getJson(String path) throws IOException {
+    public static JsonNode getJson(String path) throws Exception {
         final String pluginsResponse = makeRequest(Request.Get("http://localhost:9200/" + path));
 
         ObjectMapper mapper = new ObjectMapper();

@@ -23,7 +23,9 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
+import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -32,7 +34,7 @@ import static org.hamcrest.Matchers.nullValue;
 
 public class ClassificationTests extends AbstractSerializingTestCase<Classification> {
 
-    private static final BoostedTreeParams BOOSTED_TREE_PARAMS = new BoostedTreeParams(0.0, 0.0, 0.5, 500, 1.0);
+    private static final BoostedTreeParams BOOSTED_TREE_PARAMS = BoostedTreeParams.builder().build();
 
     @Override
     protected Classification doParseInstance(XContentParser parser) throws IOException {
@@ -162,8 +164,16 @@ public class ClassificationTests extends AbstractSerializingTestCase<Classificat
                     "prediction_field_type", "string")));
     }
 
-    public void testFieldCardinalityLimitsIsNonNull() {
-        assertThat(createTestInstance().getFieldCardinalityLimits(), is(not(nullValue())));
+    public void testRequiredFieldsIsNonEmpty() {
+        assertThat(createTestInstance().getRequiredFields(), is(not(empty())));
+    }
+
+    public void testFieldCardinalityLimitsIsNonEmpty() {
+        assertThat(createTestInstance().getFieldCardinalityLimits(), is(not(anEmptyMap())));
+    }
+
+    public void testFieldMappingsToCopyIsNonEmpty() {
+        assertThat(createTestInstance().getExplicitlyMappedFields(""), is(not(anEmptyMap())));
     }
 
     public void testToXContent_GivenVersionBeforeRandomizeSeedWasIntroduced() throws IOException {
@@ -215,5 +225,10 @@ public class ClassificationTests extends AbstractSerializingTestCase<Classificat
         assertThat(classification.persistsState(), is(true));
         String randomId = randomAlphaOfLength(10);
         assertThat(classification.getStateDocId(randomId), equalTo(randomId + "_classification_state#1"));
+    }
+
+    public void testExtractJobIdFromStateDoc() {
+        assertThat(Classification.extractJobIdFromStateDoc("foo_bar-1_classification_state#1"), equalTo("foo_bar-1"));
+        assertThat(Classification.extractJobIdFromStateDoc("noop"), is(nullValue()));
     }
 }

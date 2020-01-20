@@ -19,7 +19,9 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 
+import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -28,7 +30,7 @@ import static org.hamcrest.Matchers.nullValue;
 
 public class RegressionTests extends AbstractSerializingTestCase<Regression> {
 
-    private static final BoostedTreeParams BOOSTED_TREE_PARAMS = new BoostedTreeParams(0.0, 0.0, 0.5, 500, 1.0);
+    private static final BoostedTreeParams BOOSTED_TREE_PARAMS = BoostedTreeParams.builder().build();
 
     @Override
     protected Regression doParseInstance(XContentParser parser) throws IOException {
@@ -99,8 +101,16 @@ public class RegressionTests extends AbstractSerializingTestCase<Regression> {
             equalTo(Map.of("dependent_variable", "foo", "prediction_field_name", "foo_prediction")));
     }
 
-    public void testFieldCardinalityLimitsIsNonNull() {
-        assertThat(createTestInstance().getFieldCardinalityLimits(), is(not(nullValue())));
+    public void testRequiredFieldsIsNonEmpty() {
+        assertThat(createTestInstance().getRequiredFields(), is(not(empty())));
+    }
+
+    public void testFieldCardinalityLimitsIsEmpty() {
+        assertThat(createTestInstance().getFieldCardinalityLimits(), is(anEmptyMap()));
+    }
+
+    public void testFieldMappingsToCopyIsNonEmpty() {
+        assertThat(createTestInstance().getExplicitlyMappedFields(""), is(not(anEmptyMap())));
     }
 
     public void testGetStateDocId() {
@@ -108,6 +118,11 @@ public class RegressionTests extends AbstractSerializingTestCase<Regression> {
         assertThat(regression.persistsState(), is(true));
         String randomId = randomAlphaOfLength(10);
         assertThat(regression.getStateDocId(randomId), equalTo(randomId + "_regression_state#1"));
+    }
+
+    public void testExtractJobIdFromStateDoc() {
+        assertThat(Regression.extractJobIdFromStateDoc("foo_bar-1_regression_state#1"), equalTo("foo_bar-1"));
+        assertThat(Regression.extractJobIdFromStateDoc("noop"), is(nullValue()));
     }
 
     public void testToXContent_GivenVersionBeforeRandomizeSeedWasIntroduced() throws IOException {

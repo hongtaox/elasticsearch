@@ -39,6 +39,8 @@ public class Classification implements DataFrameAnalysis {
     public static final ParseField TRAINING_PERCENT = new ParseField("training_percent");
     public static final ParseField RANDOMIZE_SEED = new ParseField("randomize_seed");
 
+    private static final String STATE_DOC_ID_SUFFIX = "_classification_state#1";
+
     private static final ConstructingObjectParser<Classification, Void> LENIENT_PARSER = createParser(true);
     private static final ConstructingObjectParser<Classification, Void> STRICT_PARSER = createParser(false);
 
@@ -48,11 +50,11 @@ public class Classification implements DataFrameAnalysis {
             lenient,
             a -> new Classification(
                 (String) a[0],
-                new BoostedTreeParams((Double) a[1], (Double) a[2], (Double) a[3], (Integer) a[4], (Double) a[5]),
-                (String) a[6],
-                (Integer) a[7],
-                (Double) a[8],
-                (Long) a[9]));
+                new BoostedTreeParams((Double) a[1], (Double) a[2], (Double) a[3], (Integer) a[4], (Double) a[5], (Integer) a[6]),
+                (String) a[7],
+                (Integer) a[8],
+                (Double) a[9],
+                (Long) a[10]));
         parser.declareString(constructorArg(), DEPENDENT_VARIABLE);
         BoostedTreeParams.declareFields(parser);
         parser.declareString(optionalConstructorArg(), PREDICTION_FIELD_NAME);
@@ -110,7 +112,7 @@ public class Classification implements DataFrameAnalysis {
     }
 
     public Classification(String dependentVariable) {
-        this(dependentVariable, new BoostedTreeParams(), null, null, null, null);
+        this(dependentVariable, BoostedTreeParams.builder().build(), null, null, null, null);
     }
 
     public Classification(StreamInput in) throws IOException {
@@ -245,6 +247,14 @@ public class Classification implements DataFrameAnalysis {
     }
 
     @Override
+    public Map<String, String> getExplicitlyMappedFields(String resultsFieldName) {
+        return new HashMap<>() {{
+            put(resultsFieldName + "." + predictionFieldName, dependentVariable);
+            put(resultsFieldName + ".top_classes.class_name", dependentVariable);
+        }};
+    }
+
+    @Override
     public boolean supportsMissingValues() {
         return true;
     }
@@ -256,7 +266,12 @@ public class Classification implements DataFrameAnalysis {
 
     @Override
     public String getStateDocId(String jobId) {
-        return jobId + "_classification_state#1";
+        return jobId + STATE_DOC_ID_SUFFIX;
+    }
+
+    public static String extractJobIdFromStateDoc(String stateDocId) {
+        int suffixIndex = stateDocId.lastIndexOf(STATE_DOC_ID_SUFFIX);
+        return suffixIndex <= 0 ? null : stateDocId.substring(0, suffixIndex);
     }
 
     @Override

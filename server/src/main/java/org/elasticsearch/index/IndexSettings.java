@@ -19,6 +19,7 @@
 package org.elasticsearch.index;
 
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
 import org.apache.lucene.index.MergePolicy;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
@@ -226,11 +227,10 @@ public final class IndexSettings {
 
     /**
      * Specifies if the index should use soft-delete instead of hard-delete for update/delete operations.
-     * Soft-deletes is enabled by default for 7.0+ indices.
+     * Soft-deletes is enabled by default for 7.0 indices and mandatory for 8.0 indices.
      */
-    public static final Setting<Boolean> INDEX_SOFT_DELETES_SETTING = Setting.boolSetting("index.soft_deletes.enabled",
-        settings -> Boolean.toString(IndexMetaData.SETTING_INDEX_VERSION_CREATED.get(settings).onOrAfter(Version.V_7_0_0)),
-        Property.IndexScope, Property.Final);
+    public static final Setting<Boolean> INDEX_SOFT_DELETES_SETTING =
+        Setting.boolSetting("index.soft_deletes.enabled", true, Property.IndexScope, Property.Final);
 
     /**
      * Controls how many soft-deleted documents will be kept around before being merged away. Keeping more deleted
@@ -491,6 +491,7 @@ public final class IndexSettings {
         mergeSchedulerConfig = new MergeSchedulerConfig(this);
         gcDeletesInMillis = scopedSettings.get(INDEX_GC_DELETES_SETTING).getMillis();
         softDeleteEnabled = scopedSettings.get(INDEX_SOFT_DELETES_SETTING);
+        assert softDeleteEnabled || version.before(Version.V_8_0_0) : "soft deletes must be enabled in version " + version;
         softDeleteRetentionOperations = scopedSettings.get(INDEX_SOFT_DELETES_RETENTION_OPERATIONS_SETTING);
         retentionLeaseMillis = scopedSettings.get(INDEX_SOFT_DELETES_RETENTION_LEASE_PERIOD_SETTING).millis();
         warmerEnabled = scopedSettings.get(INDEX_WARMER_ENABLED_SETTING);
@@ -631,14 +632,14 @@ public final class IndexSettings {
      * Returns <code>true</code> if the index has a custom data path
      */
     public boolean hasCustomDataPath() {
-        return customDataPath() != null;
+        return Strings.isNotEmpty(customDataPath());
     }
 
     /**
-     * Returns the customDataPath for this index, if configured. <code>null</code> o.w.
+     * Returns the customDataPath for this index, if configured. <code>""</code> o.w.
      */
     public String customDataPath() {
-        return settings.get(IndexMetaData.SETTING_DATA_PATH);
+        return IndexMetaData.INDEX_DATA_PATH_SETTING.get(settings);
     }
 
     /**

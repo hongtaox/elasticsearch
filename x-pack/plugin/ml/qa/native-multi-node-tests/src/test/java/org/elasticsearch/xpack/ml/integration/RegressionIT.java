@@ -7,16 +7,17 @@ package org.elasticsearch.xpack.ml.integration;
 
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
 import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.delete.DeleteResponse;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsConfig;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsState;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.BoostedTreeParams;
-import org.elasticsearch.xpack.core.ml.dataframe.analyses.BoostedTreeParamsTests;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.Regression;
 import org.junit.After;
 
@@ -51,7 +52,14 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
         initialize("regression_single_numeric_feature_and_mixed_data_set");
         indexData(sourceIndex, 300, 50);
 
-        DataFrameAnalyticsConfig config = buildAnalytics(jobId, sourceIndex, destIndex, null, new Regression(DEPENDENT_VARIABLE_FIELD));
+        DataFrameAnalyticsConfig config = buildAnalytics(jobId, sourceIndex, destIndex, null,
+            new Regression(
+                DEPENDENT_VARIABLE_FIELD,
+                BoostedTreeParams.builder().setNumTopFeatureImportanceValues(1).build(),
+                null,
+                null,
+                null)
+        );
         registerAnalytics(config);
         putAnalytics(config);
 
@@ -76,6 +84,7 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
             assertThat(resultsObject.containsKey("variable_prediction"), is(true));
             assertThat(resultsObject.containsKey("is_training"), is(true));
             assertThat(resultsObject.get("is_training"), is(destDoc.containsKey(DEPENDENT_VARIABLE_FIELD)));
+            assertThat(resultsObject.containsKey("feature_importance." + NUMERICAL_FEATURE_FIELD), is(true));
         }
 
         assertProgress(jobId, 100, 100, 100, 100);
@@ -139,7 +148,7 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
                 sourceIndex,
                 destIndex,
                 null,
-                new Regression(DEPENDENT_VARIABLE_FIELD, BoostedTreeParamsTests.createRandom(), null, 50.0, null));
+                new Regression(DEPENDENT_VARIABLE_FIELD, BoostedTreeParams.builder().build(), null, 50.0, null));
         registerAnalytics(config);
         putAnalytics(config);
 
@@ -242,7 +251,13 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
         String firstJobId = "regression_two_jobs_with_same_randomize_seed_1";
         String firstJobDestIndex = firstJobId + "_dest";
 
-        BoostedTreeParams boostedTreeParams = new BoostedTreeParams(1.0, 1.0, 1.0, 1, 1.0);
+        BoostedTreeParams boostedTreeParams = BoostedTreeParams.builder()
+            .setLambda(1.0)
+            .setGamma(1.0)
+            .setEta(1.0)
+            .setFeatureBagFraction(1.0)
+            .setMaximumNumberTrees(1)
+            .build();
 
         DataFrameAnalyticsConfig firstJob = buildAnalytics(firstJobId, sourceIndex, firstJobDestIndex, null,
             new Regression(DEPENDENT_VARIABLE_FIELD, boostedTreeParams, null, 50.0, null));
@@ -272,6 +287,38 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
         assertThat(secondRunTrainingRowsIds, equalTo(firstRunTrainingRowsIds));
     }
 
+    public void testDeleteExpiredData_RemovesUnusedState() throws Exception {
+        initialize("regression_delete_expired_data");
+        indexData(sourceIndex, 100, 0);
+
+        DataFrameAnalyticsConfig config = buildAnalytics(jobId, sourceIndex, destIndex, null, new Regression(DEPENDENT_VARIABLE_FIELD));
+        registerAnalytics(config);
+        putAnalytics(config);
+        startAnalytics(jobId);
+        waitUntilAnalyticsIsStopped(jobId);
+
+        assertProgress(jobId, 100, 100, 100, 100);
+        assertThat(searchStoredProgress(jobId).getHits().getTotalHits().value, equalTo(1L));
+        assertModelStatePersisted(stateDocId());
+        assertInferenceModelPersisted(jobId);
+
+        // Call _delete_expired_data API and check nothing was deleted
+        assertThat(deleteExpiredData().isDeleted(), is(true));
+        assertThat(searchStoredProgress(jobId).getHits().getTotalHits().value, equalTo(1L));
+        assertModelStatePersisted(stateDocId());
+
+        // Delete the config straight from the config index
+        DeleteResponse deleteResponse = client().prepareDelete(".ml-config", DataFrameAnalyticsConfig.documentId(jobId))
+            .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE).execute().actionGet();
+        assertThat(deleteResponse.status(), equalTo(RestStatus.OK));
+
+        // Now calling the _delete_expired_data API should remove unused state
+        assertThat(deleteExpiredData().isDeleted(), is(true));
+
+        SearchResponse stateIndexSearchResponse = client().prepareSearch(".ml-state").execute().actionGet();
+        assertThat(stateIndexSearchResponse.getHits().getTotalHits().value, equalTo(0L));
+    }
+
     private void initialize(String jobId) {
         this.jobId = jobId;
         this.sourceIndex = jobId + "_source_index";
@@ -280,7 +327,7 @@ public class RegressionIT extends MlNativeDataFrameAnalyticsIntegTestCase {
 
     private static void indexData(String sourceIndex, int numTrainingRows, int numNonTrainingRows) {
         client().admin().indices().prepareCreate(sourceIndex)
-            .addMapping("_doc", NUMERICAL_FEATURE_FIELD, "type=double", DEPENDENT_VARIABLE_FIELD, "type=double")
+            .setMapping(NUMERICAL_FEATURE_FIELD, "type=double", DEPENDENT_VARIABLE_FIELD, "type=double")
             .get();
 
         BulkRequestBuilder bulkRequestBuilder = client().prepareBulk()
